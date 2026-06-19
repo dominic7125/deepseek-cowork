@@ -1,6 +1,6 @@
 # DeepSeek Cowork Protocol 1.0
 
-This repository uses protocol version `1.0`. Implementations must reject unknown protocol versions rather than guessing at compatibility.
+This protocol version is fixed at `1.0`. Implementations must reject unknown protocol versions rather than guessing at compatibility.
 
 ## Request
 
@@ -25,21 +25,19 @@ Nested constraints:
 - `complexity` must be `"standard"` or `"complex"`.
 - `revision_round` must be an integer from `0` to `3`.
 - `task` contains exactly `summary` and `acceptance_criteria`.
-task contains exactly `summary` and `acceptance_criteria`.
 - `task.summary` is a non-empty string.
 - `task.acceptance_criteria` is a non-empty array of strings and may repeat values.
 - `authorized_files.modify` and `authorized_files.create` are arrays of unique relative POSIX paths.
 - `files` is an array of `{ "path", "content" }` objects with unique paths.
-files is an array of `{ "path", "content" }` objects with unique paths.
+- `files[].path uniqueness is enforced at runtime because JSON Schema cannot enforce uniqueness across array objects.`
 - `files[].path` is a relative POSIX path and `files[].content` is a string.
 - `project_rules` is an array of strings and may repeat values.
 - `verification_commands` is an array of strings and may repeat values.
 - `review_feedback` is an array of objects.
-- review_feedback items must contain `severity`, `file`, `problem`, and `required_change`.
-- review_feedback items may include `line`.
+- `review_feedback` items must contain `severity`, `file`, `problem`, and `required_change`.
+- `review_feedback` items may include `line`.
 - `review_feedback[].file` is a relative POSIX path.
 - `verification_failure` is either `null` or an object with `command`, `exit_code`, and `summary`.
-verification_failure is either `null` or an object with `command`, `exit_code`, and `summary`.
 - `verification_failure.command` and `verification_failure.summary` are non-empty strings.
 - `verification_failure.exit_code` is an integer.
 
@@ -96,3 +94,4 @@ All paths in requests and responses must be relative POSIX paths:
 ## Compatibility rule
 
 If a request or response uses a protocol version other than `1.0`, reject it explicitly.
+

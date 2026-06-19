@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 import unittest
 
@@ -25,6 +26,13 @@ def load_module():
 
 def load_json_schema(relative_path: str):
     return json.loads((Path(__file__).resolve().parents[1] / relative_path).read_text(encoding="utf-8"))
+
+
+def schema_path(schema: dict, *parts):
+    value = schema
+    for part in parts:
+        value = value[part]
+    return value
 
 
 def valid_request():
@@ -205,16 +213,81 @@ class ProtocolTests(unittest.TestCase):
             encoding="utf-8"
         )
         for phrase in [
-            "task contains exactly `summary` and `acceptance_criteria`",
-            "files is an array of `{ \"path\", \"content\" }` objects with unique paths",
-            "review_feedback items must contain `severity`, `file`, `problem`, and `required_change`",
-            "review_feedback items may include `line`",
-            "verification_failure is either `null` or an object with `command`, `exit_code`, and `summary`",
-            "Patch responses contain exactly `changed_files`, `patch`, `assumptions`, and `verification_notes`",
-            "Blocked responses contain exactly `missing_context`",
+            "- `task` contains exactly `summary` and `acceptance_criteria`.",
+            "- `files` is an array of `{ \"path\", \"content\" }` objects with unique paths.",
+            "- `review_feedback` items must contain `severity`, `file`, `problem`, and `required_change`.",
+            "- `review_feedback` items may include `line`.",
+            "- `verification_failure` is either `null` or an object with `command`, `exit_code`, and `summary`.",
+            "Patch responses contain exactly `changed_files`, `patch`, `assumptions`, and `verification_notes`.",
+            "Blocked responses contain exactly `missing_context`.",
+            "files[].path uniqueness is enforced at runtime because JSON Schema cannot enforce uniqueness across array objects.",
         ]:
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, protocol)
+        for phrase in [
+            "- `task` contains exactly `summary` and `acceptance_criteria`.",
+            "- `files` is an array of `{ \"path\", \"content\" }` objects with unique paths.",
+            "- `verification_failure` is either `null` or an object with `command`, `exit_code`, and `summary`.",
+        ]:
+            with self.subTest(no_duplicate=phrase):
+                self.assertEqual(protocol.count(phrase), 1)
+
+    def test_schema_uses_reusable_relative_posix_path_constraint(self):
+        request_schema = load_json_schema("skill/references/request.schema.json")
+        response_schema = load_json_schema("skill/references/response.schema.json")
+
+        for schema in (request_schema, response_schema):
+            with self.subTest(schema=schema["$id"]):
+                self.assertIn("$defs", schema)
+                self.assertIn("relative_posix_path", schema["$defs"])
+                path_def = schema["$defs"]["relative_posix_path"]
+                self.assertEqual(path_def["type"], "string")
+                self.assertIn("pattern", path_def)
+                pattern = path_def["pattern"]
+                for invalid in [
+                    "/abs",
+                    "\\windows",
+                    "dir//file",
+                    ".",
+                    "..",
+                    "dir/.",
+                    "dir/..",
+                    "dir\\file",
+                    "C:/abs",
+                ]:
+                    with self.subTest(invalid=invalid):
+                        self.assertIsNone(re.fullmatch(pattern, invalid))
+                for valid in [
+                    "file.txt",
+                    "dir/file.txt",
+                    "dir/subdir/file.md",
+                ]:
+                    with self.subTest(valid=valid):
+                        self.assertIsNotNone(re.fullmatch(pattern, valid))
+
+    def test_schema_path_fields_reference_reusable_constraint(self):
+        request_schema = load_json_schema("skill/references/request.schema.json")
+        response_schema = load_json_schema("skill/references/response.schema.json")
+
+        request_refs = [
+            schema_path(request_schema, "properties", "authorized_files", "properties", "modify", "items"),
+            schema_path(request_schema, "properties", "authorized_files", "properties", "create", "items"),
+            schema_path(request_schema, "properties", "files", "items", "properties", "path"),
+            schema_path(request_schema, "properties", "review_feedback", "items", "oneOf", 0, "properties", "file"),
+            schema_path(request_schema, "properties", "review_feedback", "items", "oneOf", 1, "properties", "file"),
+        ]
+        response_refs = [
+            schema_path(response_schema, "oneOf", 0, "properties", "changed_files", "items"),
+            schema_path(response_schema, "oneOf", 1, "properties", "missing_context", "items"),
+        ]
+
+        for ref in request_refs + response_refs:
+            self.assertEqual(ref, {"$ref": "#/$defs/relative_posix_path"})
+
+        self.assertEqual(
+            schema_path(request_schema, "properties", "files", "items", "properties", "path"),
+            {"$ref": "#/$defs/relative_posix_path"},
+        )
 
 
 if __name__ == "__main__":

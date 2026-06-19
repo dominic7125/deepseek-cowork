@@ -3,6 +3,12 @@
   "$id": "response.schema.json",
   "title": "DeepSeek Cowork Response",
   "type": "object",
+  "$defs": {
+    "relative_posix_path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*//)(?!.*\\\\)(?![A-Za-z]:)(?!.*(?:^|/)(?:\\.{1,2})(?:/|$))(?!.*\/$).+$"
+    }
+  },
   "oneOf": [
     {
       "type": "object",
@@ -31,8 +37,7 @@
           "type": "array",
           "uniqueItems": true,
           "items": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/relative_posix_path"
           }
         },
         "patch": {
@@ -72,8 +77,7 @@
           "type": "array",
           "uniqueItems": true,
           "items": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/relative_posix_path"
           }
         }
       }

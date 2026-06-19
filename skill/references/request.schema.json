@@ -60,16 +60,14 @@
           "type": "array",
           "uniqueItems": true,
           "items": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/relative_posix_path"
           }
         },
         "create": {
           "type": "array",
           "uniqueItems": true,
           "items": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/relative_posix_path"
           }
         }
       }
@@ -83,8 +81,7 @@
         "required": ["path", "content"],
         "properties": {
           "path": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/relative_posix_path"
           },
           "content": {
             "type": "string"
@@ -120,8 +117,7 @@
                 "minLength": 1
               },
               "file": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/relative_posix_path"
               },
               "problem": {
                 "type": "string",
@@ -143,8 +139,7 @@
                 "minLength": 1
               },
               "file": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/relative_posix_path"
               },
               "line": {
                 "type": "integer",
@@ -187,6 +182,12 @@
           }
         }
       ]
+    }
+  },
+  "$defs": {
+    "relative_posix_path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*//)(?!.*\\\\)(?![A-Za-z]:)(?!.*(?:^|/)(?:\\.{1,2})(?:/|$))(?!.*\/$).+$"
     }
   },
   "allOf": [
