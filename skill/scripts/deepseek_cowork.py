@@ -130,8 +130,22 @@ def _config_string_list(value, path, *, item_nonempty=False):
 
 def _https_url(value, path):
     text = _config_string(value, path, nonempty=True)
+    if any(char.isspace() for char in text):
+        raise ConfigError(f"{path} must be an HTTPS URL")
     parsed = urlparse(text)
-    if parsed.scheme != "https" or not parsed.netloc:
+    if parsed.scheme != "https":
+        raise ConfigError(f"{path} must be an HTTPS URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ConfigError(f"{path} must be an HTTPS URL")
+    if parsed.query or parsed.fragment:
+        raise ConfigError(f"{path} must be an HTTPS URL")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ConfigError(f"{path} must be an HTTPS URL") from exc
+    if parsed.hostname is None or not parsed.hostname.strip():
+        raise ConfigError(f"{path} must be an HTTPS URL")
+    if port is not None and not (0 < port < 65536):
         raise ConfigError(f"{path} must be an HTTPS URL")
     return text.rstrip("/")
 
@@ -145,10 +159,10 @@ def load_config(path=None):
     try:
         with config_path.open("rb") as handle:
             raw = tomllib.load(handle)
-    except FileNotFoundError as exc:
-        raise ConfigError(f"configuration file not found: {config_path}") from exc
+    except OSError as exc:
+        raise ConfigError(f"configuration file error: {config_path}") from exc
     except tomllib.TOMLDecodeError as exc:
-        raise ConfigError("configuration file is not valid TOML") from exc
+        raise ConfigError(f"configuration file is not valid TOML: {config_path}") from exc
 
     _config_exact_keys(raw, {"api_key", "base_url", "models", "runtime", "verification"}, "config")
     _config_exact_keys(raw["models"], {"fast", "reasoning"}, "models")

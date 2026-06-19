@@ -5,6 +5,7 @@ import json
 import math
 import sys
 import tempfile
+import re
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from unittest.mock import patch
@@ -96,8 +97,27 @@ class ConfigTests(unittest.TestCase):
     def test_missing_config_file_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "missing.toml"
-            with self.assertRaises(self.dc.ConfigError):
+            with self.assertRaisesRegex(self.dc.ConfigError, re.escape(str(path))):
                 self.dc.load_config(path)
+
+    def test_directory_path_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            with self.assertRaisesRegex(self.dc.ConfigError, re.escape(str(path))):
+                self.dc.load_config(path)
+
+    def test_malformed_toml_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_raw_config(Path(tmp), "api_key = 'sk-test-secret'\n[models\n")
+            with self.assertRaisesRegex(self.dc.ConfigError, "configuration file"):
+                self.dc.load_config(path)
+
+    def test_permission_error_is_wrapped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_config(Path(tmp))
+            with patch.object(self.dc.Path, "open", side_effect=PermissionError("denied")):
+                with self.assertRaisesRegex(self.dc.ConfigError, re.escape(str(path))):
+                    self.dc.load_config(path)
 
     def test_missing_api_key_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -127,6 +147,41 @@ commands = ["python -m unittest tests.test_protocol -v"]
             path = write_config(Path(tmp), base_url="http://api.deepseek.com")
             with self.assertRaisesRegex(self.dc.ConfigError, "HTTPS"):
                 self.dc.load_config(path)
+
+    def test_base_url_with_prefix_path_is_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_config(Path(tmp), base_url="https://api.deepseek.com/v1/")
+            config = self.dc.load_config(path)
+
+        self.assertEqual(config.base_url, "https://api.deepseek.com/v1")
+
+    def test_base_url_rejects_missing_hostname(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_config(Path(tmp), base_url="https://:443")
+            with self.assertRaisesRegex(self.dc.ConfigError, "base_url"):
+                self.dc.load_config(path)
+
+    def test_base_url_rejects_bad_port(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_config(Path(tmp), base_url="https://api.deepseek.com:abc")
+            with self.assertRaisesRegex(self.dc.ConfigError, "base_url"):
+                self.dc.load_config(path)
+
+    def test_base_url_rejects_credentials_query_fragment_and_whitespace(self):
+        cases = [
+            "https://user:pass@api.deepseek.com",
+            "https://api.deepseek.com?x=1",
+            "https://api.deepseek.com#frag",
+            " https://api.deepseek.com",
+            "https://api.deepseek.com ",
+            "https://api.deepseek.com/v 1",
+        ]
+        for base_url in cases:
+            with self.subTest(base_url=base_url):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = write_config(Path(tmp), base_url=base_url)
+                    with self.assertRaisesRegex(self.dc.ConfigError, "base_url"):
+                        self.dc.load_config(path)
 
     def test_unknown_top_level_key_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
