@@ -55,6 +55,8 @@ def _require_string_list(value, path, *, item_nonempty=False):
 
 def _validate_relative_posix_path(value, path):
     text = _require_string(value, path, nonempty=True)
+    if text == ".":
+        raise ProtocolError(f"{path} must be a relative POSIX path")
     if "\\" in text:
         raise ProtocolError(f"{path} must be a relative POSIX path")
     if text.startswith("/") or text.startswith("//"):

@@ -106,6 +106,13 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(self.dc.ProtocolError, "revision"):
             self.dc.validate_request(request)
 
+    def test_runtime_rejects_dot_path(self):
+        request = valid_request()
+        request["authorized_files"]["modify"] = ["."]
+        request["files"][0]["path"] = "."
+        with self.assertRaisesRegex(self.dc.ProtocolError, r"relative POSIX path"):
+            self.dc.validate_request(request)
+
     def test_request_with_extra_field_is_rejected(self):
         request = valid_request()
         request["unexpected"] = True
