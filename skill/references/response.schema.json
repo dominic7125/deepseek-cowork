@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "response.schema.json",
+  "title": "DeepSeek Cowork Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "status", "summary"],
+  "properties": {
+    "protocol_version": {
+      "const": "1.0"
+    },
+    "status": {
+      "enum": ["patch", "blocked"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "changed_files": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "patch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verification_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "missing_context": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "protocol_version",
+        "status",
+        "summary",
+        "changed_files",
+        "patch",
+        "assumptions",
+        "verification_notes"
+      ],
+      "properties": {
+        "status": {
+          "const": "patch"
+        }
+      }
+    },
+    {
+      "required": ["protocol_version", "status", "summary", "missing_context"],
+      "properties": {
+        "status": {
+          "const": "blocked"
+        }
+      }
+    }
+  ]
+}

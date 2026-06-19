@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "request.schema.json",
+  "title": "DeepSeek Cowork Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "task",
+    "mode",
+    "complexity",
+    "revision_round",
+    "authorized_files",
+    "files",
+    "project_rules",
+    "verification_commands",
+    "review_feedback",
+    "verification_failure"
+  ],
+  "properties": {
+    "protocol_version": {
+      "const": "1.0"
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "acceptance_criteria"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "mode": {
+      "enum": ["implementation", "revision"]
+    },
+    "complexity": {
+      "enum": ["standard", "complex"]
+    },
+    "revision_round": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "authorized_files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modify", "create"],
+      "properties": {
+        "modify": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "create": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "content"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "project_rules": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "verification_commands": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "review_feedback": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["severity", "file", "problem", "required_change"],
+            "properties": {
+              "severity": {
+                "type": "string",
+                "minLength": 1
+              },
+              "file": {
+                "type": "string",
+                "minLength": 1
+              },
+              "problem": {
+                "type": "string",
+                "minLength": 1
+              },
+              "required_change": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["severity", "file", "problem", "required_change", "line"],
+            "properties": {
+              "severity": {
+                "type": "string",
+                "minLength": 1
+              },
+              "file": {
+                "type": "string",
+                "minLength": 1
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "problem": {
+                "type": "string",
+                "minLength": 1
+              },
+              "required_change": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    "verification_failure": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command", "exit_code", "summary"],
+          "properties": {
+            "command": {
+              "type": "string",
+              "minLength": 1
+            },
+            "exit_code": {
+              "type": "integer"
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+
