@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import sys
 import tempfile
 from dataclasses import FrozenInstanceError
@@ -188,6 +189,14 @@ commands = ["python -m unittest tests.test_protocol -v"]
             path = write_config(Path(tmp), timeout_seconds=0)
             with self.assertRaisesRegex(self.dc.ConfigError, "timeout_seconds"):
                 self.dc.load_config(path)
+
+    def test_nonfinite_timeout_is_rejected(self):
+        for timeout in (math.nan, math.inf, -math.inf):
+            with self.subTest(timeout=timeout):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = write_config(Path(tmp), timeout_seconds=timeout)
+                    with self.assertRaisesRegex(self.dc.ConfigError, "timeout_seconds"):
+                        self.dc.load_config(path)
 
     def test_invalid_transient_retries_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

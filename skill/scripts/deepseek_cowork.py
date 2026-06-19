@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 import tomllib
 import re
 from pathlib import Path, PurePosixPath
@@ -111,6 +112,8 @@ def _config_number(value, path, *, minimum_exclusive=None):
     if type(value) not in {int, float}:
         raise ConfigError(f"{path} has invalid type")
     number = float(value)
+    if not math.isfinite(number):
+        raise ConfigError(f"{path} must be finite")
     if minimum_exclusive is not None and number <= minimum_exclusive:
         raise ConfigError(f"{path} must be greater than 0")
     return number
