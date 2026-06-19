@@ -167,6 +167,12 @@ commands = ["python -m unittest tests.test_protocol -v"]
             with self.assertRaisesRegex(self.dc.ConfigError, "base_url"):
                 self.dc.load_config(path)
 
+    def test_base_url_rejects_malformed_ipv6_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_config(Path(tmp), base_url="https://[::1")
+            with self.assertRaisesRegex(self.dc.ConfigError, "base_url"):
+                self.dc.load_config(path)
+
     def test_base_url_rejects_credentials_query_fragment_and_whitespace(self):
         cases = [
             "https://user:pass@api.deepseek.com",

@@ -132,18 +132,19 @@ def _https_url(value, path):
     text = _config_string(value, path, nonempty=True)
     if any(char.isspace() for char in text):
         raise ConfigError(f"{path} must be an HTTPS URL")
-    parsed = urlparse(text)
-    if parsed.scheme != "https":
-        raise ConfigError(f"{path} must be an HTTPS URL")
-    if parsed.username is not None or parsed.password is not None:
-        raise ConfigError(f"{path} must be an HTTPS URL")
-    if parsed.query or parsed.fragment:
-        raise ConfigError(f"{path} must be an HTTPS URL")
     try:
+        parsed = urlparse(text)
+        if parsed.scheme != "https":
+            raise ConfigError(f"{path} must be an HTTPS URL")
+        if parsed.username is not None or parsed.password is not None:
+            raise ConfigError(f"{path} must be an HTTPS URL")
+        if parsed.query or parsed.fragment:
+            raise ConfigError(f"{path} must be an HTTPS URL")
         port = parsed.port
+        hostname = parsed.hostname
     except ValueError as exc:
         raise ConfigError(f"{path} must be an HTTPS URL") from exc
-    if parsed.hostname is None or not parsed.hostname.strip():
+    if hostname is None or not hostname.strip():
         raise ConfigError(f"{path} must be an HTTPS URL")
     if port is not None and not (0 < port < 65536):
         raise ConfigError(f"{path} must be an HTTPS URL")
