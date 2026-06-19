@@ -18,8 +18,8 @@ python "$HOME\.agents\skills\deepseek-cowork\scripts\deepseek_cowork.py" run `
   --request ".codex\deepseek-cowork\request.json"
 ```
 
-7. Review the actual Git diff and verification result. Accept only when the acceptance criteria are met and no unauthorized or unsafe change exists.
-8. If review fails, send current relevant files plus concise `review_feedback` in revision rounds 1, 2, then 3. Do not resend full history.
+7. Review the actual Git diff and verification result. If Codex judges the result correct and the acceptance criteria are met, finish immediately; do not run unnecessary revision rounds.
+8. Only if review fails, send current relevant files plus concise `review_feedback`. Use at most three revision rounds (1, 2, then 3), stopping as soon as Codex approves. Do not resend full history.
 9. API retries do not count as revision rounds. A blocked response may be retried in the same round after adding only the missing context.
 10. If round 3 still fails, stop using DeepSeek and fix the remaining work directly with Codex.
 

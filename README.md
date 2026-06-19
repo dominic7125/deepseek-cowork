@@ -1,6 +1,6 @@
 # DeepSeek Cowork for Codex
 
-Codex plans and reviews; DeepSeek implements; after three failed revisions Codex takes over.
+Codex plans and reviews; DeepSeek implements. Codex stops as soon as the result passes review, with at most three revision rounds before Codex takes over.
 
 ## Install
 
