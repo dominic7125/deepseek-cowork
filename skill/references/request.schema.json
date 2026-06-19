@@ -188,6 +188,42 @@
         }
       ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["mode"],
+        "properties": {
+          "mode": {
+            "const": "implementation"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "revision_round": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["mode"],
+        "properties": {
+          "mode": {
+            "const": "revision"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "revision_round": {
+            "minimum": 1,
+            "maximum": 3
+          }
+        }
+      }
+    }
+  ]
 }
-

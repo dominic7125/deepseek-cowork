@@ -47,12 +47,8 @@ def _require_int(value, path, *, minimum=None, maximum=None):
 def _require_string_list(value, path, *, item_nonempty=False):
     _require_type(value, list, path)
     result = []
-    seen = set()
     for index, item in enumerate(value):
         text = _require_string(item, f"{path}[{index}]", nonempty=item_nonempty)
-        if text in seen:
-            raise ProtocolError(f"{path} contains duplicate values")
-        seen.add(text)
         result.append(text)
     return tuple(result)
 
