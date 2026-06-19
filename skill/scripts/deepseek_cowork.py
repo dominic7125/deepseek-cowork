@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import argparse
+import json
 import math
+import subprocess
 import tomllib
 import re
+import time
 from pathlib import Path, PurePosixPath
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 PROTOCOL_VERSION = "1.0"
 
@@ -31,6 +37,14 @@ class Config:
 
 
 class ConfigError(CoworkError):
+    pass
+
+
+class ApiError(CoworkError):
+    pass
+
+
+class PatchError(CoworkError):
     pass
 
 
@@ -396,3 +410,226 @@ def validate_response(data):
         _validate_string_path_list(data["missing_context"], "missing_context")
         return
     raise ProtocolError("invalid response status")
+
+
+SYSTEM_PROMPT = """You are an implementation worker. Use only the supplied files and rules.
+Return exactly one JSON object matching DeepSeek Cowork Protocol 1.0.
+Only modify/create authorized paths. Never delete, rename, move, or emit binary patches.
+For success return a git-style unified diff. If context is missing return status=blocked."""
+
+
+def _default_sender(url, headers, body, timeout):
+    request = Request(
+        url,
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout) as response:
+        return response.status, response.read().decode("utf-8", errors="replace")
+
+
+def call_deepseek(config, request_data, *, sender=None, sleep=time.sleep):
+    validate_request(request_data)
+    sender = sender or _default_sender
+    model = (
+        config.reasoning_model
+        if request_data["complexity"] == "complex"
+        else config.fast_model
+    )
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    request_data, ensure_ascii=False, separators=(",", ":")
+                ),
+            },
+        ],
+        "response_format": {"type": "json_object"},
+        "stream": False,
+        "thinking": {
+            "type": "enabled"
+            if request_data["complexity"] == "complex"
+            else "disabled"
+        },
+    }
+    url = f"{config.base_url}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json",
+    }
+    for attempt in range(config.transient_retries + 1):
+        try:
+            status, raw = sender(url, headers, body, config.timeout_seconds)
+            if status == 429 or status >= 500:
+                raise ApiError(f"temporary API error: HTTP {status}")
+            if status >= 400:
+                raise ApiError(f"API request failed: HTTP {status}")
+            envelope = json.loads(raw)
+            content = envelope["choices"][0]["message"]["content"]
+            result = json.loads(content)
+            validate_response(result)
+            return result
+        except HTTPError as exc:
+            error = ApiError(f"API request failed: HTTP {exc.code}")
+            retryable = exc.code == 429 or exc.code >= 500
+        except (TimeoutError, URLError) as exc:
+            error = ApiError("temporary API connection error")
+            retryable = True
+        except ApiError as exc:
+            error = exc
+            retryable = "temporary" in str(exc)
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            raise ApiError("API returned an invalid JSON response") from exc
+        if not retryable or attempt == config.transient_retries:
+            raise error
+        sleep(2**attempt)
+    raise ApiError("API request failed")
+
+
+def _patch_paths(patch):
+    forbidden = (
+        "deleted file mode",
+        "rename from ",
+        "rename to ",
+        "GIT binary patch",
+        "Binary files ",
+        "old mode 120000",
+        "new mode 120000",
+        "old mode 160000",
+        "new mode 160000",
+    )
+    if any(marker in patch for marker in forbidden):
+        raise PatchError("patch contains a forbidden operation")
+    paths = []
+    for line in patch.splitlines():
+        match = re.match(r"^diff --git a/(.+) b/(.+)$", line)
+        if not match:
+            continue
+        old, new = match.groups()
+        if old != new:
+            raise PatchError("patch may not rename files")
+        paths.append(_validate_relative_posix_path(new, "patch path"))
+    if not paths:
+        raise PatchError("patch contains no git diff")
+    if len(paths) != len(set(paths)):
+        raise PatchError("patch contains duplicate files")
+    return tuple(paths)
+
+
+def validate_patch(request_data, response):
+    paths = _patch_paths(response["patch"])
+    if set(paths) != set(response["changed_files"]):
+        raise PatchError("changed_files does not match patch")
+    modify = set(request_data["authorized_files"]["modify"])
+    create = set(request_data["authorized_files"]["create"])
+    unauthorized = set(paths) - modify - create
+    if unauthorized:
+        raise PatchError(f"patch changes unauthorized files: {', '.join(sorted(unauthorized))}")
+    for path in create:
+        if path in paths and f"new file mode " not in response["patch"]:
+            raise PatchError(f"authorized create path is not a new file: {path}")
+    return paths
+
+
+def _git(repo_root, args, patch=None):
+    return subprocess.run(
+        ["git", "-C", str(repo_root), *args],
+        input=patch,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+
+
+def apply_patch(repo_root, patch):
+    repo_root = Path(repo_root).resolve()
+    top = _git(repo_root, ["rev-parse", "--show-toplevel"])
+    if top.returncode or Path(top.stdout.strip()).resolve() != repo_root:
+        raise PatchError("repo-root must be the Git repository root")
+    check = _git(repo_root, ["apply", "--check", "--whitespace=error-all", "-"], patch)
+    if check.returncode:
+        raise PatchError("patch cannot be applied cleanly")
+    applied = _git(repo_root, ["apply", "--whitespace=error-all", "-"], patch)
+    if applied.returncode:
+        raise PatchError("patch application failed")
+
+
+def run_verification(repo_root, commands, timeout):
+    results = []
+    for command in commands:
+        try:
+            completed = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+                cwd=repo_root,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+            output = (completed.stdout + completed.stderr)
+            if len(output) > 12000:
+                output = output[:4000] + "\n[output truncated]\n" + output[-8000:]
+            results.append(
+                {"command": command, "exit_code": completed.returncode, "output": output}
+            )
+            if completed.returncode:
+                break
+        except subprocess.TimeoutExpired:
+            results.append({"command": command, "exit_code": -1, "output": "timed out"})
+            break
+    return {"passed": all(item["exit_code"] == 0 for item in results), "commands": results}
+
+
+def run_workflow(repo_root, request_path, config_path=None, *, sender=None):
+    request_data = json.loads(Path(request_path).read_text(encoding="utf-8"))
+    config = load_config(config_path)
+    response = call_deepseek(config, request_data, sender=sender)
+    if response["status"] == "blocked":
+        return 2, {"outcome": "blocked", **response}
+    validate_patch(request_data, response)
+    apply_patch(repo_root, response["patch"])
+    commands = request_data["verification_commands"] or list(config.verification_commands)
+    verification = run_verification(repo_root, commands, config.timeout_seconds)
+    return (
+        0 if verification["passed"] else 4,
+        {
+            "protocol_version": PROTOCOL_VERSION,
+            "outcome": "applied",
+            "summary": response["summary"],
+            "changed_files": response["changed_files"],
+            "verification": verification,
+        },
+    )
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", choices=["run"])
+    parser.add_argument("--repo-root", required=True)
+    parser.add_argument("--request", required=True)
+    parser.add_argument("--config")
+    args = parser.parse_args(argv)
+    try:
+        code, result = run_workflow(
+            Path(args.repo_root), Path(args.request), args.config
+        )
+    except (CoworkError, OSError, json.JSONDecodeError) as exc:
+        code, result = 3, {
+            "protocol_version": PROTOCOL_VERSION,
+            "outcome": "error",
+            "error": str(exc),
+        }
+    print(json.dumps(result, ensure_ascii=False))
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
