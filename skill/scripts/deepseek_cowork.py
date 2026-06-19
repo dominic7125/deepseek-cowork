@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+import tomllib
 import re
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+from urllib.parse import urlparse
 
 PROTOCOL_VERSION = "1.0"
 
@@ -11,6 +14,22 @@ class CoworkError(Exception):
 
 
 class ProtocolError(CoworkError):
+    pass
+
+
+@dataclass(frozen=True)
+class Config:
+    api_key: str = field(repr=False)
+    base_url: str
+    fast_model: str
+    reasoning_model: str
+    max_revision_rounds: int
+    timeout_seconds: float
+    transient_retries: int
+    verification_commands: tuple[str, ...]
+
+
+class ConfigError(CoworkError):
     pass
 
 
@@ -51,6 +70,121 @@ def _require_string_list(value, path, *, item_nonempty=False):
         text = _require_string(item, f"{path}[{index}]", nonempty=item_nonempty)
         result.append(text)
     return tuple(result)
+
+
+def _config_type(value, expected, path):
+    if not isinstance(value, expected):
+        raise ConfigError(f"{path} has invalid type")
+
+
+def _config_exact_keys(value, keys, path):
+    _config_type(value, dict, path)
+    expected = set(keys)
+    actual = set(value)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        unexpected = sorted(actual - expected)
+        details = []
+        if missing:
+            details.append(f"missing keys: {', '.join(missing)}")
+        if unexpected:
+            details.append(f"unexpected keys: {', '.join(unexpected)}")
+        raise ConfigError(f"{path} fields do not match expected configuration ({'; '.join(details)})")
+
+
+def _config_string(value, path, *, nonempty=False):
+    _config_type(value, str, path)
+    if nonempty and not value.strip():
+        raise ConfigError(f"{path} must be a non-empty string")
+    return value
+
+
+def _config_int(value, path, *, minimum=None):
+    if type(value) is not int:
+        raise ConfigError(f"{path} has invalid type")
+    if minimum is not None and value < minimum:
+        raise ConfigError(f"{path} is out of range")
+    return value
+
+
+def _config_number(value, path, *, minimum_exclusive=None):
+    if type(value) not in {int, float}:
+        raise ConfigError(f"{path} has invalid type")
+    number = float(value)
+    if minimum_exclusive is not None and number <= minimum_exclusive:
+        raise ConfigError(f"{path} must be greater than 0")
+    return number
+
+
+def _config_string_list(value, path, *, item_nonempty=False):
+    _config_type(value, list, path)
+    result = []
+    for index, item in enumerate(value):
+        text = _config_string(item, f"{path}[{index}]", nonempty=item_nonempty)
+        result.append(text)
+    return tuple(result)
+
+
+def _https_url(value, path):
+    text = _config_string(value, path, nonempty=True)
+    parsed = urlparse(text)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ConfigError(f"{path} must be an HTTPS URL")
+    return text.rstrip("/")
+
+
+def default_config_path():
+    return Path.home() / ".codex" / "deepseek-cowork" / "config.toml"
+
+
+def load_config(path=None):
+    config_path = Path(path) if path is not None else default_config_path()
+    try:
+        with config_path.open("rb") as handle:
+            raw = tomllib.load(handle)
+    except FileNotFoundError as exc:
+        raise ConfigError(f"configuration file not found: {config_path}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError("configuration file is not valid TOML") from exc
+
+    _config_exact_keys(raw, {"api_key", "base_url", "models", "runtime", "verification"}, "config")
+    _config_exact_keys(raw["models"], {"fast", "reasoning"}, "models")
+    _config_exact_keys(
+        raw["runtime"],
+        {"max_revision_rounds", "timeout_seconds", "transient_retries"},
+        "runtime",
+    )
+    _config_exact_keys(raw["verification"], {"commands"}, "verification")
+
+    api_key = _config_string(raw["api_key"], "api_key", nonempty=True)
+    base_url = _https_url(raw["base_url"], "base_url")
+    fast_model = _config_string(raw["models"]["fast"], "models.fast", nonempty=True)
+    reasoning_model = _config_string(raw["models"]["reasoning"], "models.reasoning", nonempty=True)
+    max_revision_rounds = _config_int(
+        raw["runtime"]["max_revision_rounds"], "max_revision_rounds", minimum=0
+    )
+    if max_revision_rounds != 3:
+        raise ConfigError("max_revision_rounds must be exactly 3")
+    timeout_seconds = _config_number(
+        raw["runtime"]["timeout_seconds"], "timeout_seconds", minimum_exclusive=0
+    )
+    transient_retries = _config_int(
+        raw["runtime"]["transient_retries"], "transient_retries", minimum=0
+    )
+    verification_commands = _config_string_list(
+        raw["verification"]["commands"], "verification.commands", item_nonempty=True
+    )
+
+    return Config(
+        api_key=api_key,
+        base_url=base_url,
+        fast_model=fast_model,
+        reasoning_model=reasoning_model,
+        max_revision_rounds=max_revision_rounds,
+        timeout_seconds=timeout_seconds,
+        transient_retries=transient_retries,
+        verification_commands=verification_commands,
+    )
 
 
 def _validate_relative_posix_path(value, path):
