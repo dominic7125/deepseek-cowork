@@ -172,8 +172,10 @@ def default_config_path():
 def load_config(path=None):
     config_path = Path(path) if path is not None else default_config_path()
     try:
-        with config_path.open("rb") as handle:
-            raw = tomllib.load(handle)
+        raw_bytes = config_path.read_bytes()
+        if raw_bytes.startswith(b"\xef\xbb\xbf"):
+            raw_bytes = raw_bytes[3:]
+        raw = tomllib.loads(raw_bytes.decode("utf-8"))
     except OSError as exc:
         raise ConfigError(f"configuration file error: {config_path}") from exc
     except tomllib.TOMLDecodeError as exc:

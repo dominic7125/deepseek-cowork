@@ -1,7 +1,9 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 
 SCRIPT = Path(__file__).parents[1] / "skill" / "scripts" / "deepseek_cowork.py"
@@ -105,6 +107,24 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn("index 0000000..e69de29", normalized)
         self.assertIn("new file mode 100644", normalized)
         self.assertTrue(normalized.endswith("\n"))
+
+    def test_apply_new_file_with_bad_blob_hash_on_windows(self):
+        patch = (
+            "diff --git a/hello.py b/hello.py\n"
+            "new file mode 100644\n"
+            "index 0000000..e69de29\n"
+            "--- /dev/null\n"
+            "+++ b/hello.py\n"
+            "@@ -0,0 +1 @@\n"
+            '+print("Hello, World!")\n'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            subprocess.run(["git", "-C", directory, "init"], check=True, capture_output=True)
+            dc.apply_patch(directory, patch)
+            self.assertEqual(
+                (Path(directory) / "hello.py").read_text(encoding="utf-8"),
+                'print("Hello, World!")\n',
+            )
 
 
 if __name__ == "__main__":

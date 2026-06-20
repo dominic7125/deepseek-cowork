@@ -73,6 +73,12 @@ def write_raw_config(directory: Path, content: str) -> Path:
 
 
 class ConfigTests(unittest.TestCase):
+    def test_utf8_bom_config_is_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_config(Path(directory))
+            path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())
+            self.assertEqual(self.dc.load_config(path).fast_model, "deepseek-v4-flash")
+
     @classmethod
     def setUpClass(cls):
         cls.dc = load_module()

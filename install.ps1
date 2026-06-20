@@ -10,7 +10,7 @@ Copy-Item -Recurse -Force (Join-Path $source "*") $InstallRoot
 
 if (-not (Test-Path -LiteralPath $ConfigPath)) {
     New-Item -ItemType Directory -Force -Path (Split-Path $ConfigPath) | Out-Null
-@'
+$config = @'
 api_key = "REPLACE_ME"
 base_url = "https://api.deepseek.com"
 
@@ -25,7 +25,12 @@ transient_retries = 2
 
 [verification]
 commands = []
-'@ | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+'@
+    [System.IO.File]::WriteAllText(
+        $ConfigPath,
+        $config,
+        (New-Object System.Text.UTF8Encoding($false))
+    )
 }
 
 icacls $ConfigPath /inheritance:r /grant:r "$($env:USERNAME):(F)" "SYSTEM:(F)" | Out-Null
