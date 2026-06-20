@@ -545,9 +545,15 @@ def validate_patch(request_data, response):
 
 
 def _git(repo_root, args, patch=None):
+    if patch is not None:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            input=patch.encode("utf-8"),
+            capture_output=True,
+            check=False,
+        )
     return subprocess.run(
         ["git", "-C", str(repo_root), *args],
-        input=patch,
         text=True,
         encoding="utf-8",
         errors="replace",
