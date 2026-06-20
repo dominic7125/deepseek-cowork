@@ -2,6 +2,8 @@
 
 Codex plans and reviews; DeepSeek implements. Codex stops as soon as the result passes review, with at most three revision rounds before Codex takes over.
 
+All DeepSeek work uses the configured Pro reasoning model. Flash is retained in the config format for backward compatibility but is not called.
+
 ## Install
 
 Requires Git and Python 3.11+ on Windows:

@@ -36,7 +36,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn('"status":"blocked"', dc.SYSTEM_PROMPT)
         self.assertIn("Do not echo request fields", dc.SYSTEM_PROMPT)
 
-    def test_routes_standard_model_and_parses_json(self):
+    def test_routes_all_tasks_to_reasoning_model_and_parses_json(self):
         response = {
             "protocol_version": "1.0",
             "status": "patch",
@@ -56,8 +56,8 @@ class RuntimeTests(unittest.TestCase):
 
         config = dc.Config("secret", "https://api.deepseek.com", "fast", "pro", 3, 10, 0, ())
         self.assertEqual(dc.call_deepseek(config, request(), sender=sender), response)
-        self.assertEqual(calls[0][2]["model"], "fast")
-        self.assertEqual(calls[0][2]["thinking"], {"type": "disabled"})
+        self.assertEqual(calls[0][2]["model"], "pro")
+        self.assertEqual(calls[0][2]["thinking"], {"type": "enabled"})
 
     def test_rejects_delete_and_unauthorized_patch(self):
         response = {

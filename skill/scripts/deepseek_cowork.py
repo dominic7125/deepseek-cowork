@@ -443,11 +443,7 @@ def _default_sender(url, headers, body, timeout):
 def call_deepseek(config, request_data, *, sender=None, sleep=time.sleep):
     validate_request(request_data)
     sender = sender or _default_sender
-    model = (
-        config.reasoning_model
-        if request_data["complexity"] == "complex"
-        else config.fast_model
-    )
+    model = config.reasoning_model
     body = {
         "model": model,
         "messages": [
@@ -461,11 +457,7 @@ def call_deepseek(config, request_data, *, sender=None, sleep=time.sleep):
         ],
         "response_format": {"type": "json_object"},
         "stream": False,
-        "thinking": {
-            "type": "enabled"
-            if request_data["complexity"] == "complex"
-            else "disabled"
-        },
+        "thinking": {"type": "enabled"},
     }
     url = f"{config.base_url}/chat/completions"
     headers = {

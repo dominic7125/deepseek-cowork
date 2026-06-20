@@ -8,7 +8,7 @@ description: Let Codex plan and review while DeepSeek implements bounded code ch
 1. Confirm the working directory is the intended Git repository. Inspect `git status` and preserve existing user changes.
 2. Plan the task and write concrete acceptance criteria.
 3. Select only necessary, non-secret files. Never send credentials, `.env` files, unrelated code, full chat history, or unbounded logs.
-4. Choose `standard` for local straightforward work. Choose `complex` for architecture, cross-module debugging, concurrency, security, or migrations.
+4. Set task complexity accurately for context, but always use the configured Pro reasoning model. Flash is intentionally disabled because reliable protocol output is more important than lower model cost.
 5. Build a Protocol 1.0 request. Explicitly list files DeepSeek may modify and files it may create. Do not authorize deletion or rename.
 6. Put the request under `.codex/deepseek-cowork/request.json` and run:
 
