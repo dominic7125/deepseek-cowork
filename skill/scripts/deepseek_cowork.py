@@ -4,7 +4,9 @@ from dataclasses import dataclass, field
 import argparse
 import json
 import math
+import os
 import subprocess
+import tempfile
 import tomllib
 import re
 import time
@@ -13,7 +15,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-PROTOCOL_VERSION = "1.0"
+PROTOCOL_VERSION = "2.0"
 
 
 class CoworkError(Exception):
@@ -58,7 +60,7 @@ def _require_exact_keys(value, keys, path):
     expected = set(keys)
     actual = set(value)
     if actual != expected:
-        raise ProtocolError(f"{path} fields do not match protocol 1.0")
+        raise ProtocolError(f"{path} fields do not match protocol {PROTOCOL_VERSION}")
 
 
 def _require_string(value, path, *, nonempty=False):
@@ -307,10 +309,10 @@ def _validate_review_feedback(value):
         allowed = {"severity", "file", "problem", "required_change", "line"}
         actual = set(item)
         if not actual.issubset(allowed):
-            raise ProtocolError("review_feedback fields do not match protocol 1.0")
+            raise ProtocolError(f"review_feedback fields do not match protocol {PROTOCOL_VERSION}")
         required = {"severity", "file", "problem", "required_change"}
         if not required.issubset(actual):
-            raise ProtocolError("review_feedback fields do not match protocol 1.0")
+            raise ProtocolError(f"review_feedback fields do not match protocol {PROTOCOL_VERSION}")
         _require_string(item["severity"], f"review_feedback[{index}].severity", nonempty=True)
         _validate_relative_posix_path(item["file"], f"review_feedback[{index}].file")
         _require_string(item["problem"], f"review_feedback[{index}].problem", nonempty=True)
@@ -386,21 +388,29 @@ def validate_response(data):
     if data.get("protocol_version") != PROTOCOL_VERSION:
         raise ProtocolError("unsupported protocol_version")
     status = data.get("status")
-    if status == "patch":
+    if status == "files":
         expected = {
             "protocol_version",
             "status",
             "summary",
-            "changed_files",
-            "patch",
+            "files",
             "assumptions",
             "verification_notes",
         }
         if set(data) != expected:
-            raise ProtocolError("patch response fields do not match protocol 1.0")
+            raise ProtocolError(f"files response fields do not match protocol {PROTOCOL_VERSION}")
         _require_string(data["summary"], "summary", nonempty=True)
-        _validate_string_path_list(data["changed_files"], "changed_files")
-        _require_string(data["patch"], "patch", nonempty=True)
+        _require_type(data["files"], list, "files")
+        if not data["files"]:
+            raise ProtocolError("files response must contain at least one file")
+        seen = set()
+        for index, item in enumerate(data["files"]):
+            _require_exact_keys(item, {"path", "content"}, f"files[{index}]")
+            path = _validate_relative_posix_path(item["path"], f"files[{index}].path")
+            _require_string(item["content"], f"files[{index}].content")
+            if path in seen:
+                raise ProtocolError("files response contains duplicate paths")
+            seen.add(path)
         _require_string_list(data["assumptions"], "assumptions")
         _require_string_list(data["verification_notes"], "verification_notes")
         return
@@ -418,15 +428,15 @@ SYSTEM_PROMPT = """You are an implementation worker. Use only the supplied files
 Return exactly one JSON object, with no markdown and no extra fields.
 
 Success shape:
-{"protocol_version":"1.0","status":"patch","summary":"...","changed_files":["path"],"patch":"diff --git a/path b/path\\n...","assumptions":[],"verification_notes":[]}
+{"protocol_version":"2.0","status":"files","summary":"...","files":[{"path":"path","content":"complete final file content"}],"assumptions":[],"verification_notes":[]}
 
 Missing-context shape:
-{"protocol_version":"1.0","status":"blocked","summary":"...","missing_context":["path"]}
+{"protocol_version":"2.0","status":"blocked","summary":"...","missing_context":["path"]}
 
-The protocol_version value must be the string "1.0". Do not echo request fields such as
+The protocol_version value must be the string "2.0". Do not echo request fields such as
 task, mode, authorized_files, or files. Only modify/create authorized paths. Never delete,
-rename, move, or emit binary patches. A successful patch must be a git-style unified diff
-beginning with "diff --git"."""
+rename, or move files. Return complete final text content for every changed file. Do not
+return diffs, patches, line numbers, markdown fences, or unchanged files."""
 
 
 def _default_sender(url, headers, body, timeout):
@@ -464,88 +474,50 @@ def call_deepseek(config, request_data, *, sender=None, sleep=time.sleep):
         "Authorization": f"Bearer {config.api_key}",
         "Content-Type": "application/json",
     }
-    for attempt in range(config.transient_retries + 1):
-        try:
-            status, raw = sender(url, headers, body, config.timeout_seconds)
-            if status == 429 or status >= 500:
-                raise ApiError(f"temporary API error: HTTP {status}")
-            if status >= 400:
-                raise ApiError(f"API request failed: HTTP {status}")
-            envelope = json.loads(raw)
-            content = envelope["choices"][0]["message"]["content"]
-            result = json.loads(content)
-            validate_response(result)
-            return result
-        except HTTPError as exc:
-            error = ApiError(f"API request failed: HTTP {exc.code}")
-            retryable = exc.code == 429 or exc.code >= 500
-        except (TimeoutError, URLError) as exc:
-            error = ApiError("temporary API connection error")
-            retryable = True
-        except ApiError as exc:
-            error = exc
-            retryable = "temporary" in str(exc)
-        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-            raise ApiError("API returned an invalid JSON response") from exc
-        if not retryable or attempt == config.transient_retries:
-            raise error
-        sleep(2**attempt)
+    for format_attempt in range(2):
+        for attempt in range(config.transient_retries + 1):
+            try:
+                status, raw = sender(url, headers, body, config.timeout_seconds)
+                if status == 429 or status >= 500:
+                    raise ApiError(f"temporary API error: HTTP {status}")
+                if status >= 400:
+                    raise ApiError(f"API request failed: HTTP {status}")
+                envelope = json.loads(raw)
+                content = envelope["choices"][0]["message"]["content"]
+                result = json.loads(content)
+                validate_response(result)
+                return result
+            except HTTPError as exc:
+                error = ApiError(f"API request failed: HTTP {exc.code}")
+                retryable = exc.code == 429 or exc.code >= 500
+            except (TimeoutError, URLError):
+                error = ApiError("temporary API connection error")
+                retryable = True
+            except ApiError as exc:
+                error = exc
+                retryable = "temporary" in str(exc)
+            except (KeyError, IndexError, TypeError, json.JSONDecodeError, ProtocolError) as exc:
+                if format_attempt == 0:
+                    body["messages"].append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your previous response violated Protocol 2.0. "
+                                "Return exactly one of the two JSON shapes from the system prompt."
+                            ),
+                        }
+                    )
+                    break
+                raise ApiError("API returned invalid Protocol 2.0 JSON twice") from exc
+            if not retryable or attempt == config.transient_retries:
+                raise error
+            sleep(2**attempt)
+        else:
+            continue
     raise ApiError("API request failed")
 
 
-def _patch_paths(patch):
-    forbidden = (
-        "deleted file mode",
-        "rename from ",
-        "rename to ",
-        "GIT binary patch",
-        "Binary files ",
-        "old mode 120000",
-        "new mode 120000",
-        "old mode 160000",
-        "new mode 160000",
-    )
-    if any(marker in patch for marker in forbidden):
-        raise PatchError("patch contains a forbidden operation")
-    paths = []
-    for line in patch.splitlines():
-        match = re.match(r"^diff --git a/(.+) b/(.+)$", line)
-        if not match:
-            continue
-        old, new = match.groups()
-        if old != new:
-            raise PatchError("patch may not rename files")
-        paths.append(_validate_relative_posix_path(new, "patch path"))
-    if not paths:
-        raise PatchError("patch contains no git diff")
-    if len(paths) != len(set(paths)):
-        raise PatchError("patch contains duplicate files")
-    return tuple(paths)
-
-
-def validate_patch(request_data, response):
-    paths = _patch_paths(response["patch"])
-    if set(paths) != set(response["changed_files"]):
-        raise PatchError("changed_files does not match patch")
-    modify = set(request_data["authorized_files"]["modify"])
-    create = set(request_data["authorized_files"]["create"])
-    unauthorized = set(paths) - modify - create
-    if unauthorized:
-        raise PatchError(f"patch changes unauthorized files: {', '.join(sorted(unauthorized))}")
-    for path in create:
-        if path in paths and f"new file mode " not in response["patch"]:
-            raise PatchError(f"authorized create path is not a new file: {path}")
-    return paths
-
-
-def _git(repo_root, args, patch=None):
-    if patch is not None:
-        return subprocess.run(
-            ["git", "-C", str(repo_root), *args],
-            input=patch.encode("utf-8"),
-            capture_output=True,
-            check=False,
-        )
+def _git(repo_root, args):
     return subprocess.run(
         ["git", "-C", str(repo_root), *args],
         text=True,
@@ -556,25 +528,71 @@ def _git(repo_root, args, patch=None):
     )
 
 
-def _normalize_patch(patch):
-    # DeepSeek sometimes invents incorrect blob hashes; git apply does not need them.
-    return "\n".join(
-        line for line in patch.splitlines() if not line.startswith("index ")
-    ) + "\n"
-
-
-def apply_patch(repo_root, patch):
+def write_response_files(repo_root, request_data, response):
     repo_root = Path(repo_root).resolve()
-    patch = _normalize_patch(patch)
     top = _git(repo_root, ["rev-parse", "--show-toplevel"])
     if top.returncode or Path(top.stdout.strip()).resolve() != repo_root:
         raise PatchError("repo-root must be the Git repository root")
-    check = _git(repo_root, ["apply", "--check", "--whitespace=error-all", "-"], patch)
-    if check.returncode:
-        raise PatchError("patch cannot be applied cleanly")
-    applied = _git(repo_root, ["apply", "--whitespace=error-all", "-"], patch)
-    if applied.returncode:
-        raise PatchError("patch application failed")
+    modify = set(request_data["authorized_files"]["modify"])
+    create = set(request_data["authorized_files"]["create"])
+    entries = response["files"]
+    paths = [entry["path"] for entry in entries]
+    unauthorized = set(paths) - modify - create
+    if unauthorized:
+        raise PatchError(f"response changes unauthorized files: {', '.join(sorted(unauthorized))}")
+
+    targets = {}
+    originals = {}
+    temp_paths = []
+    try:
+        for entry in entries:
+            relative = entry["path"]
+            raw_target = repo_root / Path(*PurePosixPath(relative).parts)
+            target = raw_target.resolve()
+            if not target.is_relative_to(repo_root) or raw_target.is_symlink():
+                raise PatchError(f"unsafe target path: {relative}")
+            if relative in modify and not target.is_file():
+                raise PatchError(f"authorized modify path does not exist: {relative}")
+            if relative in create and target.exists():
+                raise PatchError(f"authorized create path already exists: {relative}")
+            targets[relative] = target
+            originals[relative] = target.read_bytes() if target.exists() else None
+            target.parent.mkdir(parents=True, exist_ok=True)
+            fd, temp_name = tempfile.mkstemp(prefix=".deepseek-cowork-", dir=target.parent)
+            os.close(fd)
+            temp_path = Path(temp_name)
+            temp_path.write_text(entry["content"], encoding="utf-8", newline="")
+            temp_paths.append(temp_path)
+
+        for entry, temp_path in zip(entries, temp_paths):
+            os.replace(temp_path, targets[entry["path"]])
+        return tuple(paths)
+    except Exception:
+        for relative, original in originals.items():
+            target = targets[relative]
+            if original is None:
+                target.unlink(missing_ok=True)
+            else:
+                target.write_bytes(original)
+        raise
+    finally:
+        for temp_path in temp_paths:
+            temp_path.unlink(missing_ok=True)
+
+
+def generated_diff(repo_root, request_data, paths):
+    modify = [path for path in paths if path in request_data["authorized_files"]["modify"]]
+    create = [path for path in paths if path in request_data["authorized_files"]["create"]]
+    parts = []
+    if modify:
+        result = _git(repo_root, ["diff", "--", *modify])
+        parts.append(result.stdout)
+    for path in create:
+        result = _git(repo_root, ["diff", "--no-index", "--", "/dev/null", path])
+        if result.returncode not in {0, 1}:
+            raise PatchError(f"could not generate diff for {path}")
+        parts.append(result.stdout)
+    return "".join(parts)
 
 
 def run_verification(repo_root, commands, timeout):
@@ -611,8 +629,8 @@ def run_workflow(repo_root, request_path, config_path=None, *, sender=None):
     response = call_deepseek(config, request_data, sender=sender)
     if response["status"] == "blocked":
         return 2, {"outcome": "blocked", **response}
-    validate_patch(request_data, response)
-    apply_patch(repo_root, response["patch"])
+    changed_files = write_response_files(repo_root, request_data, response)
+    diff = generated_diff(repo_root, request_data, changed_files)
     commands = request_data["verification_commands"] or list(config.verification_commands)
     verification = run_verification(repo_root, commands, config.timeout_seconds)
     return (
@@ -621,7 +639,8 @@ def run_workflow(repo_root, request_path, config_path=None, *, sender=None):
             "protocol_version": PROTOCOL_VERSION,
             "outcome": "applied",
             "summary": response["summary"],
-            "changed_files": response["changed_files"],
+            "changed_files": list(changed_files),
+            "diff": diff,
             "verification": verification,
         },
     )

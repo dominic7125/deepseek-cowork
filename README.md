@@ -4,6 +4,12 @@ Codex plans and reviews; DeepSeek implements. Codex stops as soon as the result 
 
 All DeepSeek work uses the configured Pro reasoning model. Flash is retained in the config format for backward compatibility but is not called.
 
+Protocol 2.0 asks DeepSeek for complete changed-file contents. The local script
+writes authorized files and lets Git generate the diff, avoiding fragile
+model-generated hunk line numbers. Small changes (roughly under 15 minutes or
+fewer than three files) are handled directly by Codex unless DeepSeek is
+explicitly requested.
+
 ## Install
 
 Requires Git and Python 3.11+ on Windows:

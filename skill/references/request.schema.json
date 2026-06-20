@@ -19,7 +19,7 @@
   ],
   "properties": {
     "protocol_version": {
-      "const": "1.0"
+      "const": "2.0"
     },
     "task": {
       "type": "object",

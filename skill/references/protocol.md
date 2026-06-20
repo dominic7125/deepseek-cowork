@@ -1,97 +1,69 @@
-# DeepSeek Cowork Protocol 1.0
+# DeepSeek Cowork Protocol 2.0
 
-This protocol version is fixed at `1.0`. Implementations must reject unknown protocol versions rather than guessing at compatibility.
+Protocol 2.0 replaces model-generated unified diffs with complete file content.
+Unknown protocol versions must be rejected.
 
 ## Request
 
-The request object must contain exactly these fields:
+The request contains exactly:
 
-- `protocol_version`
-- `task`
-- `mode`
-- `complexity`
-- `revision_round`
-- `authorized_files`
-- `files`
+- `protocol_version`: `"2.0"`
+- `task`: `summary` and non-empty `acceptance_criteria`
+- `mode`: `implementation` or `revision`
+- `complexity`: `standard` or `complex`
+- `revision_round`: `0` for implementation, `1..3` for revision
+- `authorized_files`: unique relative POSIX paths split into `modify` and `create`
+- `files`: current content for authorized existing files
 - `project_rules`
 - `verification_commands`
 - `review_feedback`
 - `verification_failure`
 
-Nested constraints:
+All paths use `/`, remain relative to the repository, and contain no empty,
+`.` or `..` segments, drive prefixes, or backslashes.
 
-- `protocol_version` must be `"1.0"`.
-- `mode` must be `"implementation"` or `"revision"`.
-- `complexity` must be `"standard"` or `"complex"`.
-- `revision_round` must be an integer from `0` to `3`.
-- `task` contains exactly `summary` and `acceptance_criteria`.
-- `task.summary` is a non-empty string.
-- `task.acceptance_criteria` is a non-empty array of strings and may repeat values.
-- `authorized_files.modify` and `authorized_files.create` are arrays of unique relative POSIX paths.
-- `files` is an array of `{ "path", "content" }` objects with unique paths.
-- `files[].path uniqueness is enforced at runtime because JSON Schema cannot enforce uniqueness across array objects.`
-- `files[].path` is a relative POSIX path and `files[].content` is a string.
-- `project_rules` is an array of strings and may repeat values.
-- `verification_commands` is an array of strings and may repeat values.
-- `review_feedback` is an array of objects.
-- `review_feedback` items must contain `severity`, `file`, `problem`, and `required_change`.
-- `review_feedback` items may include `line`.
-- `review_feedback[].file` is a relative POSIX path.
-- `verification_failure` is either `null` or an object with `command`, `exit_code`, and `summary`.
-- `verification_failure.command` and `verification_failure.summary` are non-empty strings.
-- `verification_failure.exit_code` is an integer.
+## Success response
 
-Round semantics:
+```json
+{
+  "protocol_version": "2.0",
+  "status": "files",
+  "summary": "Implemented the requested change",
+  "files": [
+    {
+      "path": "src/example.py",
+      "content": "complete final file content\n"
+    }
+  ],
+  "assumptions": [],
+  "verification_notes": []
+}
+```
 
-- `implementation` requests must use `revision_round = 0`.
-- `revision` requests must use `revision_round = 1`, `2`, or `3`.
+Rules:
 
-## Response
+- `files` contains only changed files and at least one entry.
+- Every entry has exactly `path` and complete final `content`.
+- Paths must be unique at runtime and explicitly authorized.
+- `modify` targets must already exist.
+- `create` targets must not exist.
+- Deletion, rename, move, binary output, and partial snippets are unsupported.
+- The local script writes files atomically and asks Git to generate the diff.
 
-Patch responses contain exactly `changed_files`, `patch`, `assumptions`, and `verification_notes`.
+## Blocked response
 
-Patch responses must contain exactly:
+```json
+{
+  "protocol_version": "2.0",
+  "status": "blocked",
+  "summary": "Missing required context",
+  "missing_context": ["src/model.py"]
+}
+```
 
-- `protocol_version`
-- `status`
-- `summary`
-- `changed_files`
-- `patch`
-- `assumptions`
-- `verification_notes`
+## Retry policy
 
-Blocked responses contain exactly `missing_context`.
-
-Blocked responses must contain exactly:
-
-- `protocol_version`
-- `status`
-- `summary`
-- `missing_context`
-
-Response array constraints:
-
-- `changed_files` is a unique array of relative POSIX paths.
-- `patch` is a non-empty unified diff string.
-- `assumptions` is an array of strings and may repeat values.
-- `verification_notes` is an array of strings and may repeat values.
-- `missing_context` is a unique array of relative POSIX paths.
-- `status` is `"patch"` or `"blocked"`.
-- A `patch` response must include a non-empty unified diff.
-- A `blocked` response must not include `patch` or `changed_files`.
-
-## Path rules
-
-All paths in requests and responses must be relative POSIX paths:
-
-- use `/` separators;
-- no absolute paths;
-- no drive prefixes;
-- no backslashes;
-- no `.` or `..` path segments;
-- no empty path segments.
-
-## Compatibility rule
-
-If a request or response uses a protocol version other than `1.0`, reject it explicitly.
-
+- Temporary HTTP failures use the configured transport retry count.
+- Invalid JSON or an invalid Protocol 2.0 shape gets one format-only retry.
+- A second format failure stops DeepSeek use for that attempt.
+- The three revision rounds are reserved for implementation correctness, not formatting.
