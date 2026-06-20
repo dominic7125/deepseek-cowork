@@ -413,9 +413,18 @@ def validate_response(data):
 
 
 SYSTEM_PROMPT = """You are an implementation worker. Use only the supplied files and rules.
-Return exactly one JSON object matching DeepSeek Cowork Protocol 1.0.
-Only modify/create authorized paths. Never delete, rename, move, or emit binary patches.
-For success return a git-style unified diff. If context is missing return status=blocked."""
+Return exactly one JSON object, with no markdown and no extra fields.
+
+Success shape:
+{"protocol_version":"1.0","status":"patch","summary":"...","changed_files":["path"],"patch":"diff --git a/path b/path\\n...","assumptions":[],"verification_notes":[]}
+
+Missing-context shape:
+{"protocol_version":"1.0","status":"blocked","summary":"...","missing_context":["path"]}
+
+The protocol_version value must be the string "1.0". Do not echo request fields such as
+task, mode, authorized_files, or files. Only modify/create authorized paths. Never delete,
+rename, move, or emit binary patches. A successful patch must be a git-style unified diff
+beginning with "diff --git"."""
 
 
 def _default_sender(url, headers, body, timeout):

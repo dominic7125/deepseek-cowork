@@ -28,6 +28,12 @@ def request():
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_system_prompt_contains_exact_response_shapes(self):
+        self.assertIn('"protocol_version":"1.0"', dc.SYSTEM_PROMPT)
+        self.assertIn('"status":"patch"', dc.SYSTEM_PROMPT)
+        self.assertIn('"status":"blocked"', dc.SYSTEM_PROMPT)
+        self.assertIn("Do not echo request fields", dc.SYSTEM_PROMPT)
+
     def test_routes_standard_model_and_parses_json(self):
         response = {
             "protocol_version": "1.0",
