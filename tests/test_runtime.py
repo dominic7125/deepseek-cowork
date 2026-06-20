@@ -104,6 +104,7 @@ class RuntimeTests(unittest.TestCase):
         normalized = dc._normalize_patch(patch)
         self.assertNotIn("index 0000000..e69de29", normalized)
         self.assertIn("new file mode 100644", normalized)
+        self.assertTrue(normalized.endswith("\n"))
 
 
 if __name__ == "__main__":

@@ -560,7 +560,7 @@ def _normalize_patch(patch):
     # DeepSeek sometimes invents incorrect blob hashes; git apply does not need them.
     return "\n".join(
         line for line in patch.splitlines() if not line.startswith("index ")
-    ) + ("\n" if patch.endswith("\n") else "")
+    ) + "\n"
 
 
 def apply_patch(repo_root, patch):
