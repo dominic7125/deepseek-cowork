@@ -97,6 +97,15 @@ class ProtocolTests(unittest.TestCase):
         self.assertIn("files", files_rule["required"])
         self.assertNotIn("patch", files_rule["properties"])
 
+    def test_revision_round_allows_up_to_ten(self):
+        value = valid_request()
+        value["mode"] = "revision"
+        value["revision_round"] = 10
+        dc.validate_request(value)
+        value["revision_round"] = 11
+        with self.assertRaises(dc.ProtocolError):
+            dc.validate_request(value)
+
 
 if __name__ == "__main__":
     unittest.main()

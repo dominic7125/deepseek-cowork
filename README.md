@@ -1,6 +1,8 @@
 # DeepSeek Cowork for Codex
 
-Codex plans and reviews; DeepSeek implements. Codex stops as soon as the result passes review, with at most three revision rounds before Codex takes over.
+Codex plans once, then DeepSeek receives test/lint/build failures directly for up
+to ten self-repair rounds. Codex does not inspect intermediate rounds; it
+reviews and directly fixes the final result once.
 
 All DeepSeek work uses the configured Pro reasoning model. Flash is retained in the config format for backward compatibility but is not called.
 

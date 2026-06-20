@@ -49,7 +49,7 @@
     "revision_round": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 3
+      "maximum": 10
     },
     "authorized_files": {
       "type": "object",
@@ -221,7 +221,7 @@
         "properties": {
           "revision_round": {
             "minimum": 1,
-            "maximum": 3
+            "maximum": 10
           }
         }
       }

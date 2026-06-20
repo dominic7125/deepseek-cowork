@@ -199,8 +199,8 @@ def load_config(path=None):
     max_revision_rounds = _config_int(
         raw["runtime"]["max_revision_rounds"], "max_revision_rounds", minimum=0
     )
-    if max_revision_rounds != 3:
-        raise ConfigError("max_revision_rounds must be exactly 3")
+    if max_revision_rounds != 10:
+        raise ConfigError("max_revision_rounds must be exactly 10")
     timeout_seconds = _config_number(
         raw["runtime"]["timeout_seconds"], "timeout_seconds", minimum_exclusive=0
     )
@@ -356,14 +356,14 @@ def validate_request(data):
         raise ProtocolError("invalid mode")
     if data["complexity"] not in {"standard", "complex"}:
         raise ProtocolError("invalid complexity")
-    revision_round = _require_int(data["revision_round"], "revision_round", minimum=0, maximum=3)
+    revision_round = _require_int(data["revision_round"], "revision_round", minimum=0, maximum=10)
     if data["mode"] == "implementation" and revision_round != 0:
         raise ProtocolError("implementation mode requires revision_round 0")
     if data["mode"] == "revision" and revision_round == 0:
-        raise ProtocolError("revision mode requires revision_round 1..3")
+        raise ProtocolError("revision mode requires revision_round 1..10")
     _validate_task(data["task"])
-    modify, _create = _validate_authorized_files(data["authorized_files"])
-    _validate_files(data["files"], modify)
+    modify, create = _validate_authorized_files(data["authorized_files"])
+    _validate_files(data["files"], modify | create)
     _validate_project_rules(data["project_rules"])
     _validate_verification_commands(data["verification_commands"])
     _validate_review_feedback(data["review_feedback"])
@@ -623,27 +623,95 @@ def run_verification(repo_root, commands, timeout):
     return {"passed": all(item["exit_code"] == 0 for item in results), "commands": results}
 
 
-def run_workflow(repo_root, request_path, config_path=None, *, sender=None):
-    request_data = json.loads(Path(request_path).read_text(encoding="utf-8"))
-    config = load_config(config_path)
-    response = call_deepseek(config, request_data, sender=sender)
-    if response["status"] == "blocked":
-        return 2, {"outcome": "blocked", **response}
-    changed_files = write_response_files(repo_root, request_data, response)
-    diff = generated_diff(repo_root, request_data, changed_files)
-    commands = request_data["verification_commands"] or list(config.verification_commands)
-    verification = run_verification(repo_root, commands, config.timeout_seconds)
-    return (
-        0 if verification["passed"] else 4,
-        {
-            "protocol_version": PROTOCOL_VERSION,
-            "outcome": "applied",
-            "summary": response["summary"],
-            "changed_files": list(changed_files),
-            "diff": diff,
-            "verification": verification,
-        },
+def _revision_request(repo_root, request_data, verification, revision_round):
+    revised = json.loads(json.dumps(request_data))
+    revised["mode"] = "revision"
+    revised["revision_round"] = revision_round
+    authorized = revised["authorized_files"]
+    all_paths = list(dict.fromkeys(authorized["modify"] + authorized["create"]))
+    existing = []
+    pending_create = []
+    files = []
+    for relative in all_paths:
+        target = Path(repo_root) / Path(*PurePosixPath(relative).parts)
+        if target.is_file():
+            existing.append(relative)
+            files.append(
+                {"path": relative, "content": target.read_text(encoding="utf-8")}
+            )
+        else:
+            pending_create.append(relative)
+    authorized["modify"] = existing
+    authorized["create"] = pending_create
+    revised["files"] = files
+    revised["review_feedback"] = []
+    failed = next(
+        (item for item in verification["commands"] if item["exit_code"] != 0),
+        None,
     )
+    revised["verification_failure"] = (
+        {
+            "command": failed["command"],
+            "exit_code": failed["exit_code"],
+            "summary": failed["output"][-4000:] or "command failed with no output",
+        }
+        if failed
+        else None
+    )
+    return revised
+
+
+def run_workflow(
+    repo_root,
+    request_path,
+    config_path=None,
+    *,
+    sender=None,
+    config_override=None,
+):
+    request_data = json.loads(Path(request_path).read_text(encoding="utf-8"))
+    config = config_override or load_config(config_path)
+    current_request = request_data
+    attempts = 0
+    all_changed = []
+    last_response = None
+    commands = request_data["verification_commands"] or list(config.verification_commands)
+
+    while True:
+        response = call_deepseek(config, current_request, sender=sender)
+        attempts += 1
+        last_response = response
+        if response["status"] == "blocked":
+            return 2, {
+                "outcome": "blocked",
+                "deepseek_attempts": attempts,
+                **response,
+            }
+        changed = write_response_files(repo_root, current_request, response)
+        all_changed.extend(path for path in changed if path not in all_changed)
+        verification = run_verification(repo_root, commands, config.timeout_seconds)
+        revision_round = current_request["revision_round"]
+        if verification["passed"] or not commands or revision_round >= config.max_revision_rounds:
+            diff = generated_diff(repo_root, request_data, all_changed)
+            return (
+                0 if verification["passed"] else 4,
+                {
+                    "protocol_version": PROTOCOL_VERSION,
+                    "outcome": "applied" if verification["passed"] else "needs_codex",
+                    "summary": last_response["summary"],
+                    "changed_files": all_changed,
+                    "diff": diff,
+                    "verification": verification,
+                    "deepseek_attempts": attempts,
+                    "revision_rounds": revision_round,
+                },
+            )
+        current_request = _revision_request(
+            repo_root,
+            current_request,
+            verification,
+            revision_round + 1,
+        )
 
 
 def main(argv=None):

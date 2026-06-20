@@ -20,8 +20,8 @@ python "$HOME\.agents\skills\deepseek-cowork\scripts\deepseek_cowork.py" run `
 ```
 
 8. Review the local Git-generated diff and verification result. If Codex judges the result correct and the acceptance criteria are met, finish immediately; do not run unnecessary revision rounds.
-9. Only if review fails, send current relevant files plus concise `review_feedback`. Use at most three revision rounds (1, 2, then 3), stopping as soon as Codex approves. Do not resend full history.
-10. A malformed response gets one automatic format-only retry and does not consume a revision round. A blocked response may be retried in the same round after adding only the missing context.
-11. If round 3 still fails, or the format retry fails, stop using DeepSeek and fix the remaining work directly with Codex.
+9. Do not inspect or write feedback during intermediate failures. The script sends concise test/lint/build failures directly to DeepSeek for up to ten automatic revision rounds, stopping immediately when verification passes.
+10. A malformed response gets one automatic format-only retry and does not consume a revision round.
+11. After verification passes or all ten revisions are exhausted, Codex performs one final review and directly fixes any remaining issue. Do not send Codex's final review back to DeepSeek.
 
 Read `references/protocol.md` when constructing requests.

@@ -19,7 +19,7 @@ fast = "deepseek-v4-flash"
 reasoning = "deepseek-v4-pro"
 
 [runtime]
-max_revision_rounds = 3
+max_revision_rounds = 10
 timeout_seconds = 180
 transient_retries = 2
 

@@ -45,7 +45,7 @@ def response(files=None):
 
 def config(retries=0):
     return dc.Config(
-        "secret", "https://api.deepseek.com", "fast", "pro", 3, 10, retries, ()
+        "secret", "https://api.deepseek.com", "fast", "pro", 10, 10, retries, ()
     )
 
 
@@ -132,6 +132,101 @@ class RuntimeTests(unittest.TestCase):
                 dc.write_response_files(
                     root, request(), response([{"path": "b.txt", "content": "x"}])
                 )
+
+    def test_workflow_self_repairs_until_verification_passes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "-C", directory, "init"], check=True, capture_output=True)
+            (root / "a.txt").write_text("old\n")
+            subprocess.run(["git", "-C", directory, "add", "a.txt"], check=True)
+            subprocess.run(
+                [
+                    "git", "-C", directory, "-c", "user.name=Test",
+                    "-c", "user.email=test@example.com", "commit", "-m", "init",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            request_data = request()
+            request_data["authorized_files"]["create"] = []
+            request_data["verification_commands"] = [
+                "if ((Get-Content -Raw a.txt).Trim() -eq 'good') { exit 0 } else { exit 1 }"
+            ]
+            request_path = root / "request.json"
+            request_path.write_text(json.dumps(request_data), encoding="utf-8")
+            replies = [
+                response([{"path": "a.txt", "content": "bad\n"}]),
+                response([{"path": "a.txt", "content": "good\n"}]),
+            ]
+            seen_requests = []
+
+            def sender(url, headers, body, timeout):
+                seen_requests.append(json.loads(body["messages"][1]["content"]))
+                return 200, json.dumps(
+                    {"choices": [{"message": {"content": json.dumps(replies.pop(0))}}]}
+                )
+
+            code, result = dc.run_workflow(
+                root, request_path, sender=sender, config_override=config()
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(result["deepseek_attempts"], 2)
+            self.assertEqual(seen_requests[1]["mode"], "revision")
+            self.assertEqual(seen_requests[1]["revision_round"], 1)
+            self.assertIsNotNone(seen_requests[1]["verification_failure"])
+            self.assertEqual((root / "a.txt").read_text(), "good\n")
+
+    def test_workflow_stops_after_ten_failed_self_repairs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "-C", directory, "init"], check=True, capture_output=True)
+            (root / "a.txt").write_text("old\n")
+            subprocess.run(["git", "-C", directory, "add", "a.txt"], check=True)
+            subprocess.run(
+                [
+                    "git", "-C", directory, "-c", "user.name=Test",
+                    "-c", "user.email=test@example.com", "commit", "-m", "init",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            request_data = request()
+            request_data["authorized_files"]["create"] = []
+            request_data["verification_commands"] = ["exit 1"]
+            request_path = root / "request.json"
+            request_path.write_text(json.dumps(request_data), encoding="utf-8")
+            calls = []
+
+            def sender(url, headers, body, timeout):
+                calls.append(1)
+                return 200, json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": json.dumps(
+                                        response(
+                                            [
+                                                {
+                                                    "path": "a.txt",
+                                                    "content": f"attempt {len(calls)}\n",
+                                                }
+                                            ]
+                                        )
+                                    )
+                                }
+                            }
+                        ]
+                    }
+                )
+
+            code, result = dc.run_workflow(
+                root, request_path, sender=sender, config_override=config()
+            )
+            self.assertEqual(code, 4)
+            self.assertEqual(len(calls), 11)
+            self.assertEqual(result["deepseek_attempts"], 11)
+            self.assertEqual(result["revision_rounds"], 10)
 
 
 if __name__ == "__main__":

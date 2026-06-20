@@ -11,7 +11,7 @@ The request contains exactly:
 - `task`: `summary` and non-empty `acceptance_criteria`
 - `mode`: `implementation` or `revision`
 - `complexity`: `standard` or `complex`
-- `revision_round`: `0` for implementation, `1..3` for revision
+- `revision_round`: `0` for implementation, `1..10` for automatic revision
 - `authorized_files`: unique relative POSIX paths split into `modify` and `create`
 - `files`: current content for authorized existing files
 - `project_rules`
@@ -66,4 +66,5 @@ Rules:
 - Temporary HTTP failures use the configured transport retry count.
 - Invalid JSON or an invalid Protocol 2.0 shape gets one format-only retry.
 - A second format failure stops DeepSeek use for that attempt.
-- The three revision rounds are reserved for implementation correctness, not formatting.
+- Up to ten revision rounds are handled directly by DeepSeek from verification output.
+- Codex does not inspect intermediate rounds; it reviews and fixes only the final result.
