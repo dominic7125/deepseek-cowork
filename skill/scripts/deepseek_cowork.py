@@ -556,8 +556,16 @@ def _git(repo_root, args, patch=None):
     )
 
 
+def _normalize_patch(patch):
+    # DeepSeek sometimes invents incorrect blob hashes; git apply does not need them.
+    return "\n".join(
+        line for line in patch.splitlines() if not line.startswith("index ")
+    ) + ("\n" if patch.endswith("\n") else "")
+
+
 def apply_patch(repo_root, patch):
     repo_root = Path(repo_root).resolve()
+    patch = _normalize_patch(patch)
     top = _git(repo_root, ["rev-parse", "--show-toplevel"])
     if top.returncode or Path(top.stdout.strip()).resolve() != repo_root:
         raise PatchError("repo-root must be the Git repository root")

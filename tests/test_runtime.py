@@ -93,6 +93,18 @@ class RuntimeTests(unittest.TestCase):
         )
         self.assertEqual(len(attempts), 2)
 
+    def test_normalize_patch_removes_model_generated_blob_hashes(self):
+        patch = (
+            "diff --git a/hello.py b/hello.py\n"
+            "new file mode 100644\n"
+            "index 0000000..e69de29\n"
+            "--- /dev/null\n"
+            "+++ b/hello.py\n"
+        )
+        normalized = dc._normalize_patch(patch)
+        self.assertNotIn("index 0000000..e69de29", normalized)
+        self.assertIn("new file mode 100644", normalized)
+
 
 if __name__ == "__main__":
     unittest.main()
