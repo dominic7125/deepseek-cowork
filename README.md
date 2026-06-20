@@ -12,6 +12,12 @@ model-generated hunk line numbers. Small changes (roughly under 15 minutes or
 fewer than three files) are handled directly by Codex unless DeepSeek is
 explicitly requested.
 
+Each DeepSeek API call may wait up to 15 minutes. Each verification command may
+run for up to 10 minutes. The full workflow has no internal total timeout; the
+Codex tool call should allow at least 3 hours. Intermediate progress is written
+to `.codex/deepseek-cowork/status.json`, while stdout contains only the final
+result.
+
 ## Install
 
 Requires Git and Python 3.11+ on Windows:

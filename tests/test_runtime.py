@@ -175,6 +175,9 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(seen_requests[1]["revision_round"], 1)
             self.assertIsNotNone(seen_requests[1]["verification_failure"])
             self.assertEqual((root / "a.txt").read_text(), "good\n")
+            status = json.loads((root / "status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["state"], "completed")
+            self.assertEqual(status["attempt"], 2)
 
     def test_workflow_stops_after_ten_failed_self_repairs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -227,6 +230,12 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(len(calls), 11)
             self.assertEqual(result["deepseek_attempts"], 11)
             self.assertEqual(result["revision_rounds"], 10)
+            status = json.loads((root / "status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["state"], "needs_codex")
+            self.assertEqual(status["attempt"], 11)
+
+    def test_verification_timeout_is_capped_at_ten_minutes(self):
+        self.assertEqual(dc.VERIFICATION_TIMEOUT_SECONDS, 600)
 
 
 if __name__ == "__main__":

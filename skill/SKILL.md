@@ -19,6 +19,11 @@ python "$HOME\.agents\skills\deepseek-cowork\scripts\deepseek_cowork.py" run `
   --request ".codex\deepseek-cowork\request.json"
 ```
 
+Run this command with an external timeout of at least 3 hours. The script emits
+only its final JSON to stdout. It atomically updates
+`.codex/deepseek-cowork/status.json`; read that file only if the process is
+interrupted or its status is explicitly requested.
+
 8. Review the local Git-generated diff and verification result. If Codex judges the result correct and the acceptance criteria are met, finish immediately; do not run unnecessary revision rounds.
 9. Do not inspect or write feedback during intermediate failures. The script sends concise test/lint/build failures directly to DeepSeek for up to ten automatic revision rounds, stopping immediately when verification passes.
 10. A malformed response gets one automatic format-only retry and does not consume a revision round.

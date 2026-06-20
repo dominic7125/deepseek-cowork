@@ -37,7 +37,7 @@ def write_config(directory: Path, **overrides) -> Path:
         "fast_model": "deepseek-v4-flash",
         "reasoning_model": "deepseek-v4-pro",
         "max_revision_rounds": 10,
-        "timeout_seconds": 180,
+        "timeout_seconds": 900,
         "transient_retries": 2,
         "verification_commands": ["python -m unittest tests.test_protocol -v"],
     }
@@ -93,7 +93,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.fast_model, "deepseek-v4-flash")
         self.assertEqual(config.reasoning_model, "deepseek-v4-pro")
         self.assertEqual(config.max_revision_rounds, 10)
-        self.assertEqual(config.timeout_seconds, 180)
+        self.assertEqual(config.timeout_seconds, 900)
         self.assertEqual(config.transient_retries, 2)
         self.assertEqual(config.verification_commands, ("python -m unittest tests.test_protocol -v",))
         self.assertNotIn("sk-test-secret", repr(config))
@@ -138,7 +138,7 @@ reasoning = "deepseek-v4-pro"
 
 [runtime]
 max_revision_rounds = 10
-timeout_seconds = 180
+timeout_seconds = 900
 transient_retries = 2
 
 [verification]
@@ -210,7 +210,7 @@ reasoning = "deepseek-v4-pro"
 
 [runtime]
 max_revision_rounds = 10
-timeout_seconds = 180
+timeout_seconds = 900
 transient_retries = 2
 
 [verification]
@@ -235,7 +235,7 @@ extra = "unexpected"
 
 [runtime]
 max_revision_rounds = 10
-timeout_seconds = 180
+timeout_seconds = 900
 transient_retries = 2
 
 [verification]

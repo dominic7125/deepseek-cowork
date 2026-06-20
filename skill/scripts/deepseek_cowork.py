@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 PROTOCOL_VERSION = "2.0"
+VERIFICATION_TIMEOUT_SECONDS = 600
 
 
 class CoworkError(Exception):
@@ -623,6 +624,17 @@ def run_verification(repo_root, commands, timeout):
     return {"passed": all(item["exit_code"] == 0 for item in results), "commands": results}
 
 
+def _write_status(path, **status):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(status, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
 def _revision_request(repo_root, request_data, verification, revision_round):
     revised = json.loads(json.dumps(request_data))
     revised["mode"] = "revision"
@@ -671,6 +683,7 @@ def run_workflow(
 ):
     request_data = json.loads(Path(request_path).read_text(encoding="utf-8"))
     config = config_override or load_config(config_path)
+    status_path = Path(request_path).parent / "status.json"
     current_request = request_data
     attempts = 0
     all_changed = []
@@ -678,10 +691,24 @@ def run_workflow(
     commands = request_data["verification_commands"] or list(config.verification_commands)
 
     while True:
+        _write_status(
+            status_path,
+            state="calling_deepseek",
+            attempt=attempts + 1,
+            revision_round=current_request["revision_round"],
+            max_revision_rounds=config.max_revision_rounds,
+        )
         response = call_deepseek(config, current_request, sender=sender)
         attempts += 1
         last_response = response
         if response["status"] == "blocked":
+            _write_status(
+                status_path,
+                state="blocked",
+                attempt=attempts,
+                revision_round=current_request["revision_round"],
+                max_revision_rounds=config.max_revision_rounds,
+            )
             return 2, {
                 "outcome": "blocked",
                 "deepseek_attempts": attempts,
@@ -689,10 +716,29 @@ def run_workflow(
             }
         changed = write_response_files(repo_root, current_request, response)
         all_changed.extend(path for path in changed if path not in all_changed)
-        verification = run_verification(repo_root, commands, config.timeout_seconds)
+        _write_status(
+            status_path,
+            state="verifying",
+            attempt=attempts,
+            revision_round=current_request["revision_round"],
+            max_revision_rounds=config.max_revision_rounds,
+        )
+        verification = run_verification(
+            repo_root,
+            commands,
+            min(config.timeout_seconds, VERIFICATION_TIMEOUT_SECONDS),
+        )
         revision_round = current_request["revision_round"]
         if verification["passed"] or not commands or revision_round >= config.max_revision_rounds:
             diff = generated_diff(repo_root, request_data, all_changed)
+            _write_status(
+                status_path,
+                state="completed" if verification["passed"] else "needs_codex",
+                attempt=attempts,
+                revision_round=revision_round,
+                max_revision_rounds=config.max_revision_rounds,
+                verification_passed=verification["passed"],
+            )
             return (
                 0 if verification["passed"] else 4,
                 {

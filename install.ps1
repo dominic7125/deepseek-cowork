@@ -20,7 +20,7 @@ reasoning = "deepseek-v4-pro"
 
 [runtime]
 max_revision_rounds = 10
-timeout_seconds = 180
+timeout_seconds = 900
 transient_retries = 2
 
 [verification]
